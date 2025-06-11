@@ -55,7 +55,7 @@ with Session(engine) as session:
     # Create the table in the database
     SQLModel.metadata.create_all(engine)
     # Create the hypertable
-    table_name="my_time_series_table",
+    table_name="my_time_series_table"
     timescaledb.create_hypertable(
         session, 
         commit=True, 
@@ -81,7 +81,6 @@ with Session(engine) as session:
     # Add retention policy
     timescaledb.add_retention_policy(
         session, 
-        commit=True, 
         table_name=table_name, 
         drop_after=hypertable_options.get('drop_after')
     )

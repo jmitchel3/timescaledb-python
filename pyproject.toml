@@ -32,8 +32,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jmitchel3/timescaledb"
-Repository = "https://github.com/jmitchel3/timescaledb"
+Homepage = "https://github.com/jmitchel3/timescaledb-python"
+Repository = "https://github.com/jmitchel3/timescaledb-python"
 
 [project.entry-points."sqlalchemy.dialects"]
 "timescaledb" = "timescaledb.dialect:TimescaledbPsycopg2Dialect"

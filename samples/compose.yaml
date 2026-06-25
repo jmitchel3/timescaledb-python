@@ -1,0 +1,27 @@
+# Shared TimescaleDB instance for running the sample projects "for real".
+#
+#   docker compose -f samples/compose.yaml up -d
+#   export DATABASE_URL="postgresql+psycopg://timescaledb:timescaledb@localhost:5432/timescaledb"
+#   python -m samples.iot_sensor_network.main
+#
+# The automated test suites do NOT need this file -- they spin up their own
+# throwaway TimescaleDB container via `testcontainers` (see samples/conftest.py).
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      - POSTGRES_USER=timescaledb
+      - POSTGRES_PASSWORD=timescaledb
+      - POSTGRES_DB=timescaledb
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U timescaledb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - samples_timescaledb_data:/var/lib/postgresql/data
+
+volumes:
+  samples_timescaledb_data:

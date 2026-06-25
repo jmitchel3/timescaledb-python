@@ -24,6 +24,7 @@ jobs:
   tests:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     strategy:
       matrix:
@@ -33,15 +34,15 @@ jobs:
         - '3.13'
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
         allow-prereleases: true
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v8
       with:
         enable-cache: true
         cache-dependency-glob: tests/requirements/*.txt
@@ -51,9 +52,12 @@ jobs:
 
     - name: Run tox targets for ${{ matrix.python-version }}
       run: tox run -f py$(echo ${{ matrix.python-version }} | tr -d .)
+      # Spins up a TimescaleDB container via testcontainers; bound so a stuck
+      # pull/test can't hang the job.
+      timeout-minutes: 15
 
     - name: Upload coverage data
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-data-${{ matrix.python-version }}
         path: '${{ github.workspace }}/.coverage.*'
@@ -63,22 +67,23 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     needs: tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8
 
       - name: Install dependencies
         run: uv pip install --system coverage[toml]
 
       - name: Download data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ${{ github.workspace }}
           pattern: coverage-data-*
@@ -92,7 +97,7 @@ jobs:
 
       - name: Upload HTML report
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: html-report
           path: htmlcov
@@ -100,6 +105,7 @@ jobs:
   release:
     if: success() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     environment: release
 
     permissions:
@@ -107,11 +113,14 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v8
 
       - name: Build
         run: uv build
+        timeout-minutes: 5
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        # External upload to PyPI; bound so a stalled upload can't hang the job.
+        timeout-minutes: 10

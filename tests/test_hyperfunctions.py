@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
+import pytest
 from sqlalchemy.sql.functions import FunctionElement
 
 from timescaledb.hyperfunctions import time_bucket, time_bucket_gapfill
@@ -13,16 +15,28 @@ def test_time_bucket_basic():
     # Check the compiled SQL expression
     assert isinstance(bucket.compile().string, str)
     assert "time_bucket" in bucket.compile().string
-    assert "interval" in bucket.compile().string
+    assert "interval" in bucket.compile().string.lower()
 
 
 def test_time_bucket_with_integer():
-    """Test time_bucket with integer bucket width."""
-    ts = datetime.now(timezone.utc)
+    """Test time_bucket with integer bucket width and integer timestamp."""
+    ts = 1_700_000_000
     bucket = time_bucket(300, ts)  # 5 minutes in seconds
 
     compiled = bucket.compile().string
-    assert "300 seconds" in compiled.lower()
+    assert "interval" not in compiled.lower()
+    params = bucket.compile().params
+    assert 300 in params.values()
+    assert ts in params.values()
+
+
+def test_time_bucket_with_uuidv7():
+    """Test time_bucket with a UUIDv7 timestamp value."""
+    ts = UUID("0194214e-cd00-7000-a9a7-63f1416dab45")
+    bucket = time_bucket("1 hour", ts)
+
+    assert isinstance(bucket, FunctionElement)
+    assert any(ts == value for value in bucket.compile().params.values())
 
 
 def test_time_bucket_with_timezone():
@@ -57,7 +71,7 @@ def test_time_bucket_gapfill_basic():
 
     compiled = bucket.compile().string
     assert "time_bucket_gapfill" in compiled
-    assert "interval" in compiled
+    assert "interval" in compiled.lower()
 
 
 def test_time_bucket_gapfill_with_range():
@@ -82,3 +96,22 @@ def test_time_bucket_gapfill_with_timezone():
     compiled = bucket.compile().string
     assert "time_bucket_gapfill" in compiled
     assert "UTC" in compiled
+
+
+def test_time_bucket_gapfill_with_integer():
+    """Test time_bucket_gapfill with integer bucket width and integer range."""
+    bucket = time_bucket_gapfill(300, 1_700_000_000, start=1, finish=900)
+
+    compiled = bucket.compile()
+    assert "interval" not in compiled.string.lower()
+    assert 300 in compiled.params.values()
+    assert 1 in compiled.params.values()
+    assert 900 in compiled.params.values()
+
+
+def test_integer_bucket_rejects_timezone():
+    with pytest.raises(ValueError, match="timezone is not supported"):
+        time_bucket(300, 1_700_000_000, timezone="UTC")
+
+    with pytest.raises(ValueError, match="timezone is not supported"):
+        time_bucket_gapfill(300, 1_700_000_000, timezone="UTC")

@@ -33,3 +33,11 @@ class TimescaleModel(SQLModel):
     __enable_compression__: ClassVar[bool] = False
     __compress_orderby__: ClassVar[Optional[str]] = None
     __compress_segmentby__: ClassVar[Optional[str]] = None
+    __enable_columnstore__: ClassVar[bool] = False
+    __columnstore_orderby__: ClassVar[Optional[str]] = None
+    __columnstore_segmentby__: ClassVar[Optional[str]] = None
+    __columnstore_after__: ClassVar[Optional[str]] = None
+    __columnstore_created_before__: ClassVar[Optional[str]] = None
+    __columnstore_if_not_exists__: ClassVar[bool] = True
+    __columnstore_schedule_interval__: ClassVar[Optional[str]] = None
+    __columnstore_timezone__: ClassVar[Optional[str]] = None

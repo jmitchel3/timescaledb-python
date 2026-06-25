@@ -1,12 +1,30 @@
 from datetime import datetime
 from typing import Optional, Union
+from uuid import UUID
 
 from sqlalchemy import func, text
 
 
+def _clean_interval(interval: str) -> str:
+    cleaned_interval = interval.replace("INTERVAL", "").strip()
+    return cleaned_interval.replace("'", "").replace('"', "")
+
+
+def _bucket_width_arg(bucket_width: Union[str, int]):
+    if isinstance(bucket_width, int):
+        return bucket_width
+    return text(f"INTERVAL '{_clean_interval(bucket_width)}'")
+
+
+def _interval_or_integer_offset(offset: Union[str, int], integer_bucket: bool):
+    if isinstance(offset, int) or integer_bucket:
+        return offset
+    return text(f"INTERVAL '{_clean_interval(offset)}'")
+
+
 def time_bucket(
     bucket_width: Union[str, int],
-    ts: Union[datetime, int],
+    ts: Union[datetime, int, UUID],
     timezone: Optional[str] = None,
     origin: Optional[Union[datetime, str]] = None,
     offset: Optional[Union[str, int]] = None,
@@ -31,14 +49,11 @@ def time_bucket(
             func.avg(Model.value)
         ).group_by(bucket)
     """
-    # Format bucket_width as a string interval if it's an integer
-    if isinstance(bucket_width, int):
-        bucket_width = f"{bucket_width} seconds"
+    integer_bucket = isinstance(bucket_width, int)
+    if integer_bucket and timezone is not None:
+        raise ValueError("timezone is not supported for integer time buckets")
 
-    # Cast the bucket_width to INTERVAL type
-    bucket_width = text(f"'{bucket_width}'::interval")
-
-    args = [bucket_width, ts]
+    args = [_bucket_width_arg(bucket_width), ts]
 
     # Add optional parameters if provided
     if timezone is not None:
@@ -46,7 +61,7 @@ def time_bucket(
     if origin is not None:
         args.append(origin)
     if offset is not None:
-        args.append(offset)
+        args.append(_interval_or_integer_offset(offset, integer_bucket))
     # Create the time_bucket function call with the correct schema
     return func.time_bucket(*args)
 
@@ -79,14 +94,11 @@ def time_bucket_gapfill(
             func.avg(Model.value)
         ).group_by(bucket)
     """
-    # Format bucket_width as a string interval if it's an integer
-    if isinstance(bucket_width, int):
-        bucket_width = f"{bucket_width} seconds"
+    integer_bucket = isinstance(bucket_width, int)
+    if integer_bucket and timezone is not None:
+        raise ValueError("timezone is not supported for integer gapfill buckets")
 
-    # Cast the bucket_width to INTERVAL type
-    bucket_width = text(f"'{bucket_width}'::interval")
-
-    args = [bucket_width, ts]
+    args = [_bucket_width_arg(bucket_width), ts]
 
     # Add timezone parameter if provided
     if timezone is not None:
@@ -94,6 +106,9 @@ def time_bucket_gapfill(
 
     # Handle start and finish timestamps with timezone awareness
     if start is not None and finish is not None:
+        if integer_bucket:
+            args.extend([start, finish])
+            return func.time_bucket_gapfill(*args)
         # For time_bucket_gapfill, start and finish must be provided together
         timestamp_type = "timestamptz" if timezone is not None else "timestamp"
         args.extend(

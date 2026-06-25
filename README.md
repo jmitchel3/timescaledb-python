@@ -14,6 +14,113 @@ pip install timescaledb
 
 The timescaledb python package provides helpers for creating hypertables, configuring compression, retention policies, and more.
 
+## Hypercore Columnstore
+
+TimescaleDB 2.18+ introduced Hypercore columnstore APIs. This package supports the modern columnstore path while keeping the older compression helpers available.
+
+```python
+from sqlmodel import Session
+
+import timescaledb
+
+with Session(engine) as session:
+    timescaledb.enable_columnstore(
+        session,
+        table_name="my_time_series_table",
+        orderby="time DESC",
+        segmentby="sensor_id",
+    )
+    timescaledb.add_columnstore_policy(
+        session,
+        table_name="my_time_series_table",
+        after="60 days",
+        if_not_exists=True,
+    )
+```
+
+You can also opt in from a `TimescaleModel`:
+
+```python
+from sqlmodel import Field
+
+from timescaledb import TimescaleModel
+
+
+class SensorReading(TimescaleModel, table=True):
+    sensor_id: int = Field(index=True)
+    value: float
+
+    __enable_columnstore__ = True
+    __columnstore_orderby__ = "time DESC"
+    __columnstore_segmentby__ = "sensor_id"
+    __columnstore_after__ = "60 days"
+```
+
+Calling `timescaledb.metadata.create_all(engine)` enables columnstore and adds a columnstore policy for opted-in models.
+
+## Direct Hypertable Creation
+
+TimescaleDB 2.20+ can create a table as a hypertable directly. For new tables, compile and execute that SQL from a model:
+
+```python
+from sqlmodel import Session
+
+import timescaledb
+
+with Session(engine) as session:
+    timescaledb.create_table_with_hypertable(
+        session,
+        SensorReading,
+        chunk_interval="7 days",
+    )
+```
+
+## Continuous Aggregate Refresh
+
+Continuous aggregates can be created, refreshed, and scheduled from a SQLModel session:
+
+```python
+from datetime import datetime, timezone
+from sqlmodel import Session
+
+import timescaledb
+
+with Session(engine) as session:
+    timescaledb.create_continuous_aggregate(
+        session,
+        "conditions_summary_hourly",
+        """
+        SELECT time_bucket('1 hour', time) AS bucket, avg(temp) AS avg_temp
+        FROM conditions
+        GROUP BY bucket
+        """,
+        with_data=False,
+    )
+    timescaledb.add_continuous_aggregate_policy(
+        session,
+        "conditions_summary_hourly",
+        start_offset="1 month",
+        end_offset="1 hour",
+        schedule_interval="1 hour",
+        buckets_per_batch=10,
+        refresh_newest_first=True,
+    )
+    timescaledb.refresh_continuous_aggregate(
+        session,
+        "conditions_summary_hourly",
+        window_start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        window_end=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        force=True,
+    )
+    timescaledb.add_generated_aggregate_column(
+        session,
+        "conditions_summary_hourly",
+        "max_temp",
+        "DOUBLE PRECISION",
+        "max(temp)",
+    )
+```
+
 ## Two ways to create a TimescaleDB Model
 
 - Automatically via `TimescaleModel`
@@ -232,4 +339,3 @@ def list_metrics(session: Session = Depends(get_session)):
     metrics = session.query(Metric).all()
     return metrics
 ```
-

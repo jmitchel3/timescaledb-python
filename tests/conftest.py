@@ -3,6 +3,7 @@ from typing import Generator, Optional
 
 import pytest
 import sqlmodel
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel
 from testcontainers.postgres import PostgresContainer
@@ -13,7 +14,7 @@ from timescaledb.models import TimescaleModel
 from timescaledb.utils import get_utc_now
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def timescale_container() -> Generator[PostgresContainer, None, None]:
     """Creates a TimescaleDB test container that can be used across multiple tests."""
     timescale_db = PostgresContainer(
@@ -154,10 +155,29 @@ class RetentionModel(TimescaleModel, table=True):
     __chunk_time_interval__ = "INTERVAL 7 days"
 
 
+def drop_public_tables(engine: Engine) -> None:
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names(schema="public")
+    if not table_names:
+        return
+    with engine.begin() as connection:
+        for table_name in table_names:
+            safe_table_name = table_name.replace('"', '""')
+            connection.execute(
+                text(f'DROP TABLE IF EXISTS "{safe_table_name}" CASCADE')
+            )
+
+
 @pytest.fixture(scope="function", autouse=True)
-def migrate_database(engine: Engine):
+def migrate_database(request):
     """Migrate the database to the latest version."""
+    db_fixtures = {"engine", "session", "timescale_url", "timescale_container"}
+    if not db_fixtures.intersection(request.fixturenames):
+        return None
+
+    engine = request.getfixturevalue("engine")
     print("Starting database migration...")  # Debug print
+    drop_public_tables(engine)
     SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
     timescaledb.metadata.create_all(engine)

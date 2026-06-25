@@ -9,9 +9,27 @@ from .compression import (
     enable_table_compression,
     sync_compression_policies,
 )
+from .continuous_aggregates import (
+    add_continuous_aggregate_policy,
+    add_generated_aggregate_column,
+    create_continuous_aggregate,
+    refresh_continuous_aggregate,
+    remove_continuous_aggregate_policy,
+)
 from .engine import create_engine
+from .hypercore import (
+    add_columnstore_policy,
+    convert_to_columnstore,
+    convert_to_rowstore,
+    enable_columnstore,
+    list_columnstore_policies,
+    remove_columnstore_policy,
+    sync_columnstore_policies,
+)
 from .hypertables import (
     create_hypertable,
+    create_table_with_hypertable,
+    format_create_table_with_hypertable_sql,
     list_hypertables,
     sync_all_hypertables,
 )
@@ -25,6 +43,8 @@ __all__ = [
     "activate_timescaledb_extension",
     "sync_all_hypertables",
     "create_hypertable",
+    "create_table_with_hypertable",
+    "format_create_table_with_hypertable_sql",
     "list_hypertables",
     "create_engine",
     "time_bucket_query",
@@ -36,4 +56,16 @@ __all__ = [
     "add_compression_policy",
     "enable_table_compression",
     "sync_compression_policies",
+    "add_continuous_aggregate_policy",
+    "add_generated_aggregate_column",
+    "create_continuous_aggregate",
+    "refresh_continuous_aggregate",
+    "remove_continuous_aggregate_policy",
+    "add_columnstore_policy",
+    "convert_to_columnstore",
+    "convert_to_rowstore",
+    "enable_columnstore",
+    "list_columnstore_policies",
+    "remove_columnstore_policy",
+    "sync_columnstore_policies",
 ]

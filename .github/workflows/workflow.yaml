@@ -142,10 +142,10 @@ jobs:
           pattern: coverage-data-*
           merge-multiple: true
 
-      - name: Combine coverage and fail if it's <85%
+      - name: Combine coverage and fail if it's <100%
         run: |
           coverage combine
-          coverage report --fail-under=85
+          coverage report --fail-under=100
 
       - name: Upload HTML report
         if: ${{ failure() }}

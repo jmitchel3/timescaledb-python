@@ -51,8 +51,7 @@ jobs:
     timeout-minutes: 10
     # Advisory for now: the codebase has a backlog of strict-mode errors to
     # burn down. Surface them on every run, but don't block merges yet.
-    # Flip continue-on-error to false once `mypy src/timescaledb` is clean.
-    continue-on-error: true
+    # Remove the `|| ...` wrapper once `mypy src/timescaledb` is clean.
     steps:
       - uses: actions/checkout@v7
 
@@ -70,7 +69,11 @@ jobs:
         timeout-minutes: 5
 
       - name: Run mypy
-        run: mypy src/timescaledb
+        run: |
+          mypy src/timescaledb || {
+            echo "::warning::mypy reported strict-mode issues; advisory only until the backlog is fixed."
+            exit 0
+          }
         timeout-minutes: 5
 
   tests:

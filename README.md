@@ -20,6 +20,7 @@ running `time_bucket` / `time_bucket_gapfill` queries.
 
 ## Contents
 
+- [Requirements](#requirements)
 - [Installation](#installation)
 - [Quickstart](#quickstart)
 - [Creating a hypertable](#creating-a-hypertable)
@@ -33,7 +34,27 @@ running `time_bucket` / `time_bucket_gapfill` queries.
 - [Querying with `time_bucket`](#querying-with-time_bucket)
 - [Sample projects](#sample-projects)
 - [FastAPI example](#fastapi-example)
+- [Limitations & status](#limitations--status)
+- [Contributing](#contributing)
 - [Used by](#used-by)
+
+## Requirements
+
+- **Python:** 3.11, 3.12, 3.13, or 3.14.
+- **PostgreSQL:** a PostgreSQL server with the TimescaleDB extension installed
+  (the official `timescale/timescaledb` Docker images bundle both). The package
+  targets PostgreSQL 15+ in CI.
+- **TimescaleDB:** 2.x. Some features require newer releases:
+
+  | Feature | Minimum TimescaleDB |
+  | --- | --- |
+  | Hypertables, compression, retention, continuous aggregates | 2.x |
+  | Hypercore columnstore (`enable_columnstore`, `add_columnstore_policy`, …) | **2.18+** |
+  | Direct `CREATE TABLE ... WITH (tsdb.hypertable)` (`create_table_with_hypertable`) | **2.20+** |
+  | Generated aggregate columns on continuous aggregates (`add_generated_aggregate_column`) | **2.28+** |
+
+- **A PostgreSQL driver:** any SQLAlchemy-compatible driver — `psycopg`
+  (psycopg 3), `psycopg2`, or `asyncpg`. See [Installation](#installation).
 
 ## Installation
 
@@ -51,6 +72,21 @@ pip install "psycopg[binary]"   # recommended
 The package registers `timescaledb` SQLAlchemy dialects, so connection URLs such
 as `timescaledb://`, `timescaledb+psycopg://`, and `timescaledb+asyncpg://` are
 available in addition to the standard `postgresql://` URLs.
+
+### Optional dependencies
+
+The core install is intentionally lightweight — it only depends on `SQLModel`
+(plus the PostgreSQL driver you choose). FastAPI and uvicorn are **not** required
+to use the library; they are only needed for the example apps. Install them via
+the `fastapi` extra:
+
+```bash
+pip install "timescaledb[fastapi]"
+```
+
+This pulls in FastAPI + uvicorn so you can run the example FastAPI apps (see
+[`samples/fastapi_timeseries_api`](./samples/fastapi_timeseries_api/) and
+[`sample_project/`](./sample_project/)).
 
 ## Quickstart
 
@@ -549,6 +585,24 @@ def list_metrics(session: Session = Depends(get_session)):
 
 `timescaledb.create_engine` wraps `sqlmodel.create_engine` (itself a wrapper
 around `sqlalchemy.create_engine`) and pins the connection timezone for you.
+
+## Limitations & status
+
+- **Beta.** The package is in the `0.0.x` series — the public API is still
+  settling and may change between releases. Pin a version if you need stability.
+- **Helpers are synchronous.** The `timescaledb.asyncpg` dialect is registered so
+  you can use a `timescaledb+asyncpg://` URL with raw/async SQLAlchemy, but the
+  helper functions in this package (`create_hypertable`, `time_bucket_query`,
+  `enable_columnstore`, the continuous-aggregate helpers, etc.) are all
+  synchronous and operate on a SQLModel/SQLAlchemy `Session`. There is no async
+  helper API yet.
+
+## Contributing
+
+Contributions are welcome. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for how to
+set up a dev environment, run the test suite (Docker + `testcontainers`), run
+lint/mypy, and the release process. For runnable, end-to-end examples of every
+feature, see the [`samples/`](./samples/) directory.
 
 ## Used by
 

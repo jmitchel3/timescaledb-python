@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import String
 from sqlmodel import Field, SQLModel
 
 from timescaledb.exceptions import (
@@ -14,7 +14,7 @@ from timescaledb.hypertables.validators import (
     validate_time_column,
 )
 
-from .conftest import ManualHypertable, Metric, Record
+from .conftest import Metric, Record
 
 
 def test_validate_time_column_valid():

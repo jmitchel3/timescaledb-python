@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 import pytest
 import sqlalchemy
 from sqlmodel import Session

@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from sqlmodel import Session, text
 
 from timescaledb import create_hypertable
@@ -50,8 +48,8 @@ def test_enable_table_compression(session: Session):
 
     # Verify compression is enabled
     query = text(f"""
-        SELECT compression_enabled 
-        FROM timescaledb_information.hypertables 
+        SELECT compression_enabled
+        FROM timescaledb_information.hypertables
         WHERE hypertable_name = '{table_name}'
     """)
     result = session.execute(query).fetchone()
@@ -89,9 +87,9 @@ def test_add_compression_policy(session: Session):
 
     # Verify compression policy exists
     query = text(f"""
-        SELECT count(*) 
+        SELECT count(*)
         FROM timescaledb_information.jobs
-        WHERE hypertable_name = '{table_name}' 
+        WHERE hypertable_name = '{table_name}'
         AND proc_name = 'policy_compression'
     """)
     result = session.execute(query).fetchone()
@@ -135,9 +133,9 @@ def test_compression_with_created_before(session: Session):
 
     # Verify compression policy exists
     query = text(f"""
-        SELECT count(*) 
+        SELECT count(*)
         FROM timescaledb_information.jobs
-        WHERE hypertable_name = '{table_name}' 
+        WHERE hypertable_name = '{table_name}'
         AND proc_name = 'policy_compression'
     """)
     result = session.execute(query).fetchone()

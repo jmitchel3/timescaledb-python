@@ -10,7 +10,7 @@ from timescaledb.django import _django_version_tuple
 _django_version_tuple()
 
 
-class TimescaleDateTimeField(DateTimeField):  # type: ignore[name-defined]
+class TimescaleDateTimeField(django_models.DateTimeField):
     def __init__(self, *args: Any, interval: str = "1 day", **kwargs: Any) -> None:
         self.interval = interval
         kwargs.setdefault("db_index", True)

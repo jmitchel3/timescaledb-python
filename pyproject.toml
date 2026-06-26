@@ -39,6 +39,7 @@ Repository = "https://github.com/jmitchel3/timescaledb-python"
 [project.entry-points."sqlalchemy.dialects"]
 "timescaledb" = "timescaledb.dialect:TimescaledbPsycopg2Dialect"
 "timescaledb.psycopg2" = "timescaledb.dialect:TimescaledbPsycopg2Dialect"
+"timescaledb.psycopg" = "timescaledb.dialect:TimescaledbPsycopgDialect"
 "timescaledb.asyncpg" = "timescaledb.dialect:TimescaledbAsyncpgDialect"
 
 

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-26
+
+### Fixed
+
+- Fixed a flake8 `F405` lint failure in the Django model shim by explicitly
+  subclassing Django's `DateTimeField`.
+- Updated the package `__version__` to match the published package version.
+
 ## [0.2.0] - 2026-06-26
 
 ### Added

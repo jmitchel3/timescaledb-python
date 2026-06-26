@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-26
+
+### Added
+
+- `show_chunks` and `drop_chunks` helpers for inspecting and removing
+  hypertable chunks.
+- Background job helpers for listing jobs, inspecting job stats, running jobs,
+  altering schedules, and deleting jobs.
+- README documentation for chunk management and background jobs.
+- Integration and SQL-builder tests for the new chunk and job APIs.
+
+### Changed
+
+- Bumped the package to the `0.1.x` release line.
+
+### Fixed
+
+- Rejected integer bounds for chunk `created_before` / `created_after` filters,
+  which only accept timestamp or interval values.
+
 ## [0.0.7] - 2026-06-25
 
 Production-readiness hardening release.

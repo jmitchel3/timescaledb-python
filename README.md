@@ -1,6 +1,6 @@
 # TimescaleDB for Python
 
-Python client for [TimescaleDB](https://www.tigerdata.com/) — the open-source
+Python client for [TimescaleDB](https://www.tigerdata.com/), the open-source
 time-series database built on PostgreSQL. This package is built on
 [SQLModel](https://sqlmodel.tiangolo.com/) and
 [SQLAlchemy](https://www.sqlalchemy.org/) and is designed to be used with
@@ -30,6 +30,8 @@ running `time_bucket` / `time_bucket_gapfill` queries.
 - [Hypercore columnstore (2.18+)](#hypercore-columnstore-218)
 - [Compression (legacy)](#compression-legacy)
 - [Retention policies](#retention-policies)
+- [Chunks](#chunks)
+- [Background jobs](#background-jobs)
 - [Continuous aggregates](#continuous-aggregates)
 - [Querying with `time_bucket`](#querying-with-time_bucket)
 - [Sample projects](#sample-projects)
@@ -53,7 +55,7 @@ running `time_bucket` / `time_bucket_gapfill` queries.
   | Direct `CREATE TABLE ... WITH (tsdb.hypertable)` (`create_table_with_hypertable`) | **2.20+** |
   | Generated aggregate columns on continuous aggregates (`add_generated_aggregate_column`) | **2.28+** |
 
-- **A PostgreSQL driver:** any SQLAlchemy-compatible driver — `psycopg`
+- **A PostgreSQL driver:** any SQLAlchemy-compatible driver, e.g. `psycopg`
   (psycopg 3), `psycopg2`, or `asyncpg`. See [Installation](#installation).
 
 ## Installation
@@ -62,7 +64,7 @@ running `time_bucket` / `time_bucket_gapfill` queries.
 pip install timescaledb
 ```
 
-You also need a PostgreSQL driver. Any SQLAlchemy-compatible driver works —
+You also need a PostgreSQL driver. Any SQLAlchemy-compatible driver works:
 `psycopg2`, `psycopg` (v3), or `asyncpg`:
 
 ```bash
@@ -75,7 +77,7 @@ available in addition to the standard `postgresql://` URLs.
 
 ### Optional dependencies
 
-The core install is intentionally lightweight — it only depends on `SQLModel`
+The core install is intentionally lightweight; it only depends on `SQLModel`
 (plus the PostgreSQL driver you choose). FastAPI and uvicorn are **not** required
 to use the library; they are only needed for the example apps. Install them via
 the `fastapi` extra:
@@ -133,7 +135,7 @@ column for you, so a model only needs its own fields.
 
 There are three ways to turn a table into a hypertable. Pick one:
 
-1. **Automatically** with `TimescaleModel` + `timescaledb.metadata.create_all` —
+1. **Automatically** with `TimescaleModel` + `timescaledb.metadata.create_all`:
    least code, configured with class variables.
 2. **Manually** with `create_hypertable` on any table that has a `time` column.
 3. **Directly** with `create_table_with_hypertable` (TimescaleDB 2.20+), which
@@ -373,6 +375,69 @@ Or opt in from a model with `__drop_after__` and let
 `timescaledb.metadata.create_all` apply it. Use `sync_retention_policies` to
 reconcile policies across all opted-in models.
 
+## Chunks
+
+Chunks are the physical partitions that make up a hypertable. Inspect them with
+`show_chunks` and remove them on demand with `drop_chunks`, the imperative
+counterpart to a retention policy, handy for ad-hoc cleanup or fixing a backfill:
+
+```python
+# List every chunk of a hypertable
+chunks = timescaledb.show_chunks(session, table_name="my_time_series_table")
+
+# Only the chunks older than a window (also accepts a datetime, timedelta,
+# or, for integer-partitioned hypertables, an int)
+old = timescaledb.show_chunks(
+    session,
+    table_name="my_time_series_table",
+    older_than="3 months",
+)
+
+# Drop chunks older than a window. At least one bound (older_than/newer_than/
+# created_before/created_after) is required so you can't empty a hypertable by
+# accident. Returns the names of the dropped chunks.
+dropped = timescaledb.drop_chunks(
+    session,
+    table_name="my_time_series_table",
+    older_than="3 months",
+)
+session.commit()
+```
+
+Both helpers also accept a `model=` argument instead of `table_name=`, and the
+`created_before` / `created_after` bounds (TimescaleDB 2.8+).
+
+## Background jobs
+
+Every automated policy (retention, compression/columnstore, and
+continuous-aggregate refresh) runs as a TimescaleDB *background job*. In
+production you need to confirm those jobs actually run and succeed (a silently
+failing compression job means unbounded storage growth), so the package lets you
+inspect and manage them:
+
+```python
+# List jobs (optionally filtered by hypertable or policy procedure)
+jobs = timescaledb.list_jobs(session)
+retention_jobs = timescaledb.list_jobs(session, proc_name="policy_retention")
+
+# Inspect run statistics: last run, last success, totals, failures
+for stat in timescaledb.get_job_stats(session):
+    print(stat.job_id, stat.last_run_status, stat.total_failures)
+
+job_id = retention_jobs[0].job_id
+
+# Run a job now (foreground), reschedule it, or pause/delete it
+timescaledb.run_job(session, job_id)
+timescaledb.alter_job(session, job_id, schedule_interval="6 hours")
+timescaledb.alter_job(session, job_id, scheduled=False)  # pause
+timescaledb.delete_job(session, job_id)
+session.commit()
+```
+
+`list_jobs` returns `JobSchema` objects and `get_job_stats` returns
+`JobStatsSchema` objects. ±infinity timestamps (e.g. a job that has never
+succeeded) are normalised to `None`.
+
 ## Continuous aggregates
 
 Continuous aggregates can be created, scheduled, refreshed, and extended from a
@@ -422,8 +487,8 @@ with Session(engine) as session:
 ```
 
 Remove a refresh policy with `remove_continuous_aggregate_policy`. The newer
-policy options — `buckets_per_batch`, `max_batches_per_execution`,
-`refresh_newest_first`, and `include_tiered_data` — are all supported.
+policy options (`buckets_per_batch`, `max_batches_per_execution`,
+`refresh_newest_first`, and `include_tiered_data`) are all supported.
 
 ## Querying with `time_bucket`
 
@@ -588,7 +653,7 @@ around `sqlalchemy.create_engine`) and pins the connection timezone for you.
 
 ## Limitations & status
 
-- **Beta.** The package is in the `0.0.x` series — the public API is still
+- **Beta.** The package is in the `0.x` series; the public API is still
   settling and may change between releases. Pin a version if you need stability.
 - **Helpers are synchronous.** The `timescaledb.asyncpg` dialect is registered so
   you can use a `timescaledb+asyncpg://` URL with raw/async SQLAlchemy, but the
@@ -606,7 +671,7 @@ feature, see the [`samples/`](./samples/) directory.
 
 ## Used by
 
-- [analytics-api](https://github.com/codingforentrepreneurs/analytics-api) —
+- [analytics-api](https://github.com/codingforentrepreneurs/analytics-api):
   complete tutorial project for building an Analytics API using FastAPI +
   TimescaleDB.
 

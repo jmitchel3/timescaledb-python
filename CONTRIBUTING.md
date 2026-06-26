@@ -47,7 +47,7 @@ pip install -r requirements.dev.txt
 
 ## Running the test suite
 
-The tests need **no manual database setup** — `testcontainers` starts a
+The tests need **no manual database setup**; `testcontainers` starts a
 throwaway TimescaleDB container and tears it down afterwards. Make sure Docker is
 running first.
 
@@ -110,7 +110,7 @@ flake8 src tests
 mypy src/timescaledb
 ```
 
-Imports are sorted with `isort` (`force_single_line`, black profile) — see the
+Imports are sorted with `isort` (`force_single_line`, black profile); see the
 `[tool.isort]` config in `pyproject.toml`. A `pre-commit` config can be installed
 with `pre-commit install` if you use it.
 
@@ -121,7 +121,7 @@ with `pre-commit install` if you use it.
   coverage (CI enforces an 85% floor).
 - Make sure `flake8`, `mypy`, and the test suite pass locally.
 - Update the `README.md` and/or `samples/` when you add or change public API.
-- Do **not** bump the version in your PR — releases are cut separately (see
+- Do **not** bump the version in your PR; releases are cut separately (see
   below).
 
 ## Release process
@@ -151,4 +151,4 @@ when a tag is pushed. Versioning is `MAJOR.MINOR.PATCH` and driven by
    to PyPI via trusted publishing (OIDC) using
    `pypa/gh-action-pypi-publish`.
 
-No PyPI token is needed locally — publishing happens entirely in CI.
+No PyPI token is needed locally; publishing happens entirely in CI.

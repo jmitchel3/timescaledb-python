@@ -23,7 +23,7 @@ if __name__ == "__main__":
     run = partial(subprocess.run, check=True)
 
     # Generate requirements for each supported Python version
-    for py_version in ["3.11", "3.12", "3.13"]:
+    for py_version in ["3.11", "3.12", "3.13", "3.14"]:
         run(
             [
                 *common_args,

@@ -4,16 +4,15 @@ Python client for [TimescaleDB](https://www.tigerdata.com/), the open-source
 time-series database built on PostgreSQL. This package is built on
 [SQLModel](https://sqlmodel.tiangolo.com/) and
 [SQLAlchemy](https://www.sqlalchemy.org/) and is designed to be used with
-FastAPI, Flask, and any other SQLAlchemy-based project.
+FastAPI, Flask, Django 5.2+, and other Python web or data projects.
 
 It gives you Python helpers for the things you actually do with TimescaleDB:
 creating hypertables, enabling the Hypercore columnstore (and legacy
 compression), setting retention policies, building continuous aggregates, and
 running `time_bucket` / `time_bucket_gapfill` queries.
 
-> Looking for Django? Check out [django-timescaledb](https://github.com/jamessewell/django-timescaledb).
-
 - **Supports:** Python 3.11, 3.12, 3.13, and 3.14
+- **Django:** optional first-party integration for Django 5.2+
 - **Targets:** TimescaleDB 2.x (Hypercore columnstore needs 2.18+; direct-create
   hypertables need 2.20+; generated aggregate columns need 2.28+)
 - **License:** MIT
@@ -34,6 +33,7 @@ running `time_bucket` / `time_bucket_gapfill` queries.
 - [Background jobs](#background-jobs)
 - [Continuous aggregates](#continuous-aggregates)
 - [Querying with `time_bucket`](#querying-with-time_bucket)
+- [Django support](#django-support)
 - [Sample projects](#sample-projects)
 - [FastAPI example](#fastapi-example)
 - [Limitations & status](#limitations--status)
@@ -89,6 +89,13 @@ pip install "timescaledb[fastapi]"
 This pulls in FastAPI + uvicorn so you can run the example FastAPI apps (see
 [`samples/fastapi_timeseries_api`](./samples/fastapi_timeseries_api/) and
 [`sample_project/`](./sample_project/)).
+
+Install the optional Django integration separately. The Django extra supports
+Django 5.2 and newer and keeps PostgreSQL drivers explicit:
+
+```bash
+pip install "timescaledb[django]" "psycopg[binary]"
+```
 
 ## Quickstart
 
@@ -526,9 +533,93 @@ rows = timescaledb.time_bucket_gapfill_query(
 
 Both accept a `filters` list of SQLAlchemy conditions for narrowing the query.
 
+## Django support
+
+Django support lives under `timescaledb.django` and is optional, so SQLModel,
+SQLAlchemy, FastAPI, and Flask users do not install Django by default.
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    "timescaledb.django",
+    # ...
+]
+
+DATABASES = {
+    "default": {
+        "ENGINE": "timescaledb.django.db.backends.postgresql",
+        "NAME": "timeseries",
+        "USER": "postgres",
+        "PASSWORD": "postgres",
+        "HOST": "localhost",
+        "PORT": "5432",
+    }
+}
+```
+
+Models can use the Django compatibility shims:
+
+```python
+from timescaledb.django.db import models
+
+
+class Metric(models.TimescaleModel):
+    time = models.TimescaleDateTimeField(interval="1 hour")
+    sensor_id = models.IntegerField()
+    value = models.FloatField()
+```
+
+TimescaleDB schema changes are explicit migration operations:
+
+```python
+from django.db import migrations
+from timescaledb.django.db import migrations as timescale_migrations
+
+
+class Migration(migrations.Migration):
+    operations = [
+        timescale_migrations.CreateExtension(),
+        timescale_migrations.CreateHypertable(
+            model_name="metric",
+            time_column="time",
+            chunk_time_interval="1 day",
+            if_not_exists=True,
+        ),
+        timescale_migrations.AddRetentionPolicy(
+            model_name="metric",
+            drop_after="90 days",
+        ),
+        timescale_migrations.EnableColumnstore(
+            model_name="metric",
+            orderby="time DESC",
+            segmentby="sensor_id",
+        ),
+        timescale_migrations.AddColumnstorePolicy(
+            model_name="metric",
+            after="30 days",
+            if_not_exists=True,
+        ),
+    ]
+```
+
+Query helpers compile to TimescaleDB functions through Django expressions:
+
+```python
+from django.db.models import Avg
+from timescaledb.django.db.functions import TimeBucket
+
+Metric.objects.annotate(bucket=TimeBucket("1 hour", "time")).values(
+    "bucket"
+).annotate(avg_value=Avg("value"))
+```
+
+See [`docs/django.md`](./docs/django.md) and the
+[`samples/django_timeseries_dashboard`](./samples/django_timeseries_dashboard/)
+sample for a full walkthrough.
+
 ## Sample projects
 
-The [`samples/`](./samples/) directory has **ten self-contained, fully tested**
+The [`samples/`](./samples/) directory has **eleven self-contained, fully tested**
 example projects, each focused on a different TimescaleDB feature. Every sample
 runs against TimescaleDB in Docker and ships with a `pytest` suite that spins up
 a throwaway container automatically via
@@ -546,6 +637,7 @@ a throwaway container automatically via
 | 08 | [`continuous_aggregates_rollups`](./samples/continuous_aggregates_rollups/) | hierarchical continuous aggregates (hourly → daily) |
 | 09 | [`fastapi_timeseries_api`](./samples/fastapi_timeseries_api/) | a FastAPI REST API over a hypertable, tested with `TestClient` |
 | 10 | [`weather_lifecycle_full`](./samples/weather_lifecycle_full/) | capstone: hypertable + columnstore + retention + continuous aggregate + gapfill |
+| 11 | [`django_timeseries_dashboard`](./samples/django_timeseries_dashboard/) | Django 5.2+ backend, migrations, ORM `TimeBucket`, retention, and columnstore |
 
 See [`samples/README.md`](./samples/README.md) for setup and how to run the
 suites. There is also a minimal end-to-end FastAPI app in

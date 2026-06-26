@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-26
+
+### Added
+
+- First-party Django 5.2+ support behind the optional `timescaledb[django]`
+  extra.
+- `timescaledb.django` namespace with a Django app config, model shims,
+  Timescale-aware fields, querysets, ORM expressions, and a PostgreSQL backend.
+- Django migration operations for TimescaleDB extension activation,
+  hypertables, retention policies, legacy compression, Hypercore columnstore,
+  and continuous aggregates.
+- Django ORM helpers for `time_bucket`, `time_bucket_gapfill`, `histogram`,
+  `first`, `last`, `locf`, and `interpolate`.
+- A Django timeseries dashboard sample project with TimescaleDB migrations,
+  seed data, raw readings, and rollup endpoints.
+- Deterministic Django SQL-generation tests plus a live TimescaleDB integration
+  test for the custom backend, migrations, and ORM helpers.
+
+### Changed
+
+- Replaced the old public Django recommendation with first-party Django
+  integration documentation.
+- Raised the project coverage gate to verified 100% branch coverage for the
+  package.
+
 ## [0.1.0] - 2026-06-26
 
 ### Added

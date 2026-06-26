@@ -1,6 +1,6 @@
 # TimescaleDB Python — Sample Projects
 
-Ten self-contained, **fully testable** sample projects that show what you can do
+Eleven self-contained, **fully testable** sample projects that show what you can do
 with **TimescaleDB**, **time-series data**, and the
 [`timescaledb`](https://github.com/jmitchel3/timescaledb) Python package.
 
@@ -28,6 +28,7 @@ Every sample:
 | 08 | [`continuous_aggregates_rollups`](continuous_aggregates_rollups/) | **hierarchical continuous aggregates** (hourly → daily) + `refresh_continuous_aggregate` |
 | 09 | [`fastapi_timeseries_api`](fastapi_timeseries_api/) | a **FastAPI** REST API over a hypertable, tested with `TestClient` |
 | 10 | [`weather_lifecycle_full`](weather_lifecycle_full/) | **capstone**: hypertable + columnstore + retention + continuous aggregate + gapfill together |
+| 11 | [`django_timeseries_dashboard`](django_timeseries_dashboard/) | **Django 5.2+** backend, migrations, ORM `TimeBucket`, retention, and columnstore |
 
 ## Prerequisites
 

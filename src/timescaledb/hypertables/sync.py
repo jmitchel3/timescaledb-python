@@ -1,6 +1,7 @@
 import logging
 from typing import Type
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, SQLModel
 
 from timescaledb.hypertables.create import create_hypertable
@@ -44,6 +45,8 @@ def sync_all_hypertables(session: Session, *models: Type[SQLModel]) -> None:
                     "migrate_data": True,
                 },
             )
-        except Exception as e:
+        except SQLAlchemyError as e:
+            session.rollback()
             logger.error(f"Error creating hypertable for {model.__name__}: {e}")
+            raise
     session.commit()

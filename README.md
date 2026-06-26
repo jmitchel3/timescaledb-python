@@ -1,8 +1,60 @@
 # TimescaleDB for Python
 
-Python Client for TimescaleDB -- an open-source time-series database built on PostgreSQL. This package is based on SQLModel and SQLAlchemy and designed to be used with FastAPI, Flask, and more.
+Python client for [TimescaleDB](https://www.tigerdata.com/) — the open-source
+time-series database built on PostgreSQL. This package is built on
+[SQLModel](https://sqlmodel.tiangolo.com/) and
+[SQLAlchemy](https://www.sqlalchemy.org/) and is designed to be used with
+FastAPI, Flask, and any other SQLAlchemy-based project.
 
-Looking for Django? [Check out django-timescaledb](https://github.com/jamessewell/django-timescaledb)
+It gives you Python helpers for the things you actually do with TimescaleDB:
+creating hypertables, enabling the Hypercore columnstore (and legacy
+compression), setting retention policies, building continuous aggregates, and
+running `time_bucket` / `time_bucket_gapfill` queries.
+
+> Looking for Django? Check out [django-timescaledb](https://github.com/jamessewell/django-timescaledb).
+
+- **Supports:** Python 3.11, 3.12, 3.13, and 3.14
+- **Targets:** TimescaleDB 2.x (Hypercore columnstore needs 2.18+; direct-create
+  hypertables need 2.20+; generated aggregate columns need 2.28+)
+- **License:** MIT
+
+## Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [Creating a hypertable](#creating-a-hypertable)
+  - [Automatically via `TimescaleModel`](#automatically-via-timescalemodel)
+  - [Manually via `create_hypertable`](#manually-via-create_hypertable)
+  - [Direct hypertable creation (2.20+)](#direct-hypertable-creation-220)
+- [Hypercore columnstore (2.18+)](#hypercore-columnstore-218)
+- [Compression (legacy)](#compression-legacy)
+- [Retention policies](#retention-policies)
+- [Continuous aggregates](#continuous-aggregates)
+- [Querying with `time_bucket`](#querying-with-time_bucket)
+- [Sample projects](#sample-projects)
+- [FastAPI example](#fastapi-example)
+- [Limitations & status](#limitations--status)
+- [Contributing](#contributing)
+- [Used by](#used-by)
+
+## Requirements
+
+- **Python:** 3.11, 3.12, 3.13, or 3.14.
+- **PostgreSQL:** a PostgreSQL server with the TimescaleDB extension installed
+  (the official `timescale/timescaledb` Docker images bundle both). The package
+  targets PostgreSQL 15+ in CI.
+- **TimescaleDB:** 2.x. Some features require newer releases:
+
+  | Feature | Minimum TimescaleDB |
+  | --- | --- |
+  | Hypertables, compression, retention, continuous aggregates | 2.x |
+  | Hypercore columnstore (`enable_columnstore`, `add_columnstore_policy`, …) | **2.18+** |
+  | Direct `CREATE TABLE ... WITH (tsdb.hypertable)` (`create_table_with_hypertable`) | **2.20+** |
+  | Generated aggregate columns on continuous aggregates (`add_generated_aggregate_column`) | **2.28+** |
+
+- **A PostgreSQL driver:** any SQLAlchemy-compatible driver — `psycopg`
+  (psycopg 3), `psycopg2`, or `asyncpg`. See [Installation](#installation).
 
 ## Installation
 
@@ -10,13 +62,244 @@ Looking for Django? [Check out django-timescaledb](https://github.com/jamessewel
 pip install timescaledb
 ```
 
+You also need a PostgreSQL driver. Any SQLAlchemy-compatible driver works —
+`psycopg2`, `psycopg` (v3), or `asyncpg`:
+
+```bash
+pip install "psycopg[binary]"   # recommended
+```
+
+The package registers `timescaledb` SQLAlchemy dialects, so connection URLs such
+as `timescaledb://`, `timescaledb+psycopg://`, and `timescaledb+asyncpg://` are
+available in addition to the standard `postgresql://` URLs.
+
+### Optional dependencies
+
+The core install is intentionally lightweight — it only depends on `SQLModel`
+(plus the PostgreSQL driver you choose). FastAPI and uvicorn are **not** required
+to use the library; they are only needed for the example apps. Install them via
+the `fastapi` extra:
+
+```bash
+pip install "timescaledb[fastapi]"
+```
+
+This pulls in FastAPI + uvicorn so you can run the example FastAPI apps (see
+[`samples/fastapi_timeseries_api`](./samples/fastapi_timeseries_api/) and
+[`sample_project/`](./sample_project/)).
+
 ## Quickstart
 
-The timescaledb python package provides helpers for creating hypertables, configuring compression, retention policies, and more.
+```python
+from sqlmodel import Field, Session, SQLModel, select
 
-## Hypercore Columnstore
+import timescaledb
+from timescaledb import TimescaleModel
 
-TimescaleDB 2.18+ introduced Hypercore columnstore APIs. This package supports the modern columnstore path while keeping the older compression helpers available.
+DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
+
+# create_engine pins the connection timezone (defaults to "UTC")
+engine = timescaledb.create_engine(DATABASE_URL, timezone="UTC")
+
+
+class Metric(TimescaleModel, table=True):
+    # TimescaleModel already provides `id` and a `time` column
+    sensor_id: int = Field(index=True)
+    value: float
+
+
+# 1. Create the regular tables
+SQLModel.metadata.create_all(engine)
+# 2. Convert TimescaleModel tables into hypertables (+ any policies)
+timescaledb.metadata.create_all(engine)
+
+with Session(engine) as session:
+    session.add(Metric(sensor_id=1, value=42.0))
+    session.commit()
+
+    results = timescaledb.time_bucket_query(
+        session,
+        Metric,
+        interval="1 hour",
+        metric_field="value",
+    )
+    print(results)
+```
+
+`TimescaleModel` supplies the `id` primary key and a timezone-aware `time`
+column for you, so a model only needs its own fields.
+
+## Creating a hypertable
+
+There are three ways to turn a table into a hypertable. Pick one:
+
+1. **Automatically** with `TimescaleModel` + `timescaledb.metadata.create_all` —
+   least code, configured with class variables.
+2. **Manually** with `create_hypertable` on any table that has a `time` column.
+3. **Directly** with `create_table_with_hypertable` (TimescaleDB 2.20+), which
+   creates the table as a hypertable in a single statement.
+
+### Automatically via `TimescaleModel`
+
+```python
+from sqlmodel import Field, Session, SQLModel
+
+import timescaledb
+from timescaledb import TimescaleModel
+
+DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
+engine = timescaledb.create_engine(DATABASE_URL, timezone="UTC")
+
+
+class SensorReading(TimescaleModel, table=True):
+    sensor_id: int = Field(index=True)
+    value: float
+
+    # __time_column__ = "time"  # already set by TimescaleModel
+    __chunk_time_interval__ = "INTERVAL 7 days"
+    __drop_after__ = "INTERVAL 1 year"
+    __enable_compression__ = True
+    __compress_orderby__ = "time DESC"
+    __compress_segmentby__ = "sensor_id"
+    __migrate_data__ = True
+    __if_not_exists__ = True
+
+
+# Create the tables, then the hypertables + compression + retention policies
+SQLModel.metadata.create_all(engine)
+timescaledb.metadata.create_all(engine)
+```
+
+`timescaledb.metadata.create_all(engine)` walks every `TimescaleModel` subclass,
+creates the hypertable, and applies whatever compression, columnstore, and
+retention settings the model opts into.
+
+### Database drivers (SQLAlchemy dialects)
+
+`timescaledb` registers `timescaledb`-scheme SQLAlchemy dialects so you can make
+the TimescaleDB backend explicit in your connection URL. Each one is a thin
+subclass of the matching PostgreSQL driver, so behavior is identical to
+PostgreSQL apart from the URL scheme:
+
+| URL scheme | Driver | Dialect |
+| --- | --- | --- |
+| `timescaledb://` | `psycopg2` (default) | `TimescaledbPsycopg2Dialect` |
+| `timescaledb+psycopg2://` | `psycopg2` | `TimescaledbPsycopg2Dialect` |
+| `timescaledb+psycopg://` | `psycopg` (psycopg 3) | `TimescaledbPsycopgDialect` |
+| `timescaledb+asyncpg://` | `asyncpg` | `TimescaledbAsyncpgDialect` |
+
+```python
+import timescaledb
+
+# psycopg (psycopg 3)
+engine = timescaledb.create_engine(
+    "timescaledb+psycopg://user:password@localhost:5432/timescaledb"
+)
+```
+
+Install the driver you intend to use, e.g. `pip install "psycopg[binary]"` for
+psycopg 3, `pip install psycopg2-binary` for psycopg2, or `pip install asyncpg`
+for asyncpg. Plain `postgresql://` URLs continue to work unchanged.
+
+### Manually via `create_hypertable`
+
+Use this on a plain `SQLModel` table (or any existing table) that has a `time`
+column. It gives you the most direct control over each step:
+
+```python
+from sqlmodel import Field, Session, SQLModel
+from datetime import datetime
+
+import timescaledb
+
+DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
+engine = timescaledb.create_engine(DATABASE_URL)
+
+
+class Sensor(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    time: datetime = Field(default=None, primary_key=True)
+    sensor_id: int = Field(index=True)
+    value: float
+
+    __tablename__ = "my_time_series_table"
+
+
+hypertable_options = {
+    "time_column": "time",
+    "compress_orderby": "time DESC",
+    "compress_segmentby": "sensor_id",
+    "chunk_time_interval": "7 days",
+    "drop_after": "1 year",
+    "migrate_data": True,
+    "if_not_exists": True,
+}
+
+table_name = "my_time_series_table"
+
+with Session(engine) as session:
+    # Create the table in the database
+    SQLModel.metadata.create_all(engine)
+
+    # Create the hypertable
+    timescaledb.create_hypertable(
+        session,
+        commit=True,
+        table_name=table_name,
+        hypertable_options=hypertable_options,
+    )
+
+    # Enable compression
+    timescaledb.enable_table_compression(
+        session,
+        commit=True,
+        table_name=table_name,
+        compress_orderby=hypertable_options["compress_orderby"],
+        compress_segmentby=hypertable_options["compress_segmentby"],
+    )
+    # Compress chunks once they age past the chunk interval
+    timescaledb.add_compression_policy(
+        session,
+        commit=True,
+        table_name=table_name,
+        compress_after=hypertable_options["chunk_time_interval"],
+    )
+    # Drop chunks after the retention window
+    timescaledb.add_retention_policy(
+        session,
+        table_name=table_name,
+        drop_after=hypertable_options["drop_after"],
+    )
+```
+
+### Direct hypertable creation (2.20+)
+
+TimescaleDB 2.20+ can create a table as a hypertable in one statement with
+`CREATE TABLE ... WITH (tsdb.hypertable)`. For brand-new tables, compile and run
+that SQL straight from a model:
+
+```python
+from sqlmodel import Session
+
+import timescaledb
+
+with Session(engine) as session:
+    timescaledb.create_table_with_hypertable(
+        session,
+        SensorReading,
+        chunk_interval="7 days",
+    )
+```
+
+Use `timescaledb.format_create_table_with_hypertable_sql(...)` if you just want
+the SQL string without executing it.
+
+## Hypercore columnstore (2.18+)
+
+TimescaleDB 2.18 introduced the Hypercore columnstore API. This package supports
+the modern columnstore path (`enable_columnstore`, `add_columnstore_policy`,
+`convert_to_columnstore` / `convert_to_rowstore`) while keeping the older
+compression helpers available.
 
 ```python
 from sqlmodel import Session
@@ -38,7 +321,8 @@ with Session(engine) as session:
     )
 ```
 
-You can also opt in from a `TimescaleModel`:
+You can opt in from a `TimescaleModel` instead. `timescaledb.metadata.create_all`
+then enables columnstore and adds the policy automatically:
 
 ```python
 from sqlmodel import Field
@@ -56,28 +340,43 @@ class SensorReading(TimescaleModel, table=True):
     __columnstore_after__ = "60 days"
 ```
 
-Calling `timescaledb.metadata.create_all(engine)` enables columnstore and adds a columnstore policy for opted-in models.
+Available columnstore class variables: `__enable_columnstore__`,
+`__columnstore_orderby__`, `__columnstore_segmentby__`, `__columnstore_after__`,
+`__columnstore_created_before__`, `__columnstore_if_not_exists__`,
+`__columnstore_schedule_interval__`, and `__columnstore_timezone__`.
 
-## Direct Hypertable Creation
+Manual chunk conversion and policy inspection are also available via
+`convert_to_columnstore`, `convert_to_rowstore`, `list_columnstore_policies`,
+`remove_columnstore_policy`, and `sync_columnstore_policies`.
 
-TimescaleDB 2.20+ can create a table as a hypertable directly. For new tables, compile and execute that SQL from a model:
+## Compression (legacy)
+
+The pre-Hypercore compression helpers (`enable_table_compression`,
+`add_compression_policy`, `sync_compression_policies`) remain fully supported for
+existing code and older TimescaleDB versions. On TimescaleDB 2.18+, prefer the
+[Hypercore columnstore](#hypercore-columnstore-218) API for new work. See the
+[manual hypertable example](#manually-via-create_hypertable) above for usage.
+
+## Retention policies
+
+Drop chunks automatically once they age past a window:
 
 ```python
-from sqlmodel import Session
-
-import timescaledb
-
-with Session(engine) as session:
-    timescaledb.create_table_with_hypertable(
-        session,
-        SensorReading,
-        chunk_interval="7 days",
-    )
+timescaledb.add_retention_policy(
+    session,
+    table_name="my_time_series_table",
+    drop_after="1 year",
+)
 ```
 
-## Continuous Aggregate Refresh
+Or opt in from a model with `__drop_after__` and let
+`timescaledb.metadata.create_all` apply it. Use `sync_retention_policies` to
+reconcile policies across all opted-in models.
 
-Continuous aggregates can be created, refreshed, and scheduled from a SQLModel session:
+## Continuous aggregates
+
+Continuous aggregates can be created, scheduled, refreshed, and extended from a
+SQLModel session:
 
 ```python
 from datetime import datetime, timezone
@@ -112,6 +411,7 @@ with Session(engine) as session:
         window_end=datetime(2026, 2, 1, tzinfo=timezone.utc),
         force=True,
     )
+    # TimescaleDB 2.28+: add a generated aggregate column without a full rebuild
     timescaledb.add_generated_aggregate_column(
         session,
         "conditions_summary_hourly",
@@ -121,131 +421,85 @@ with Session(engine) as session:
     )
 ```
 
-## Two ways to create a TimescaleDB Model
+Remove a refresh policy with `remove_continuous_aggregate_policy`. The newer
+policy options — `buckets_per_batch`, `max_batches_per_execution`,
+`refresh_newest_first`, and `include_tiered_data` — are all supported.
 
-- Automatically via `TimescaleModel`
-- Manually via `create_hypertable` on any table with a `time` column
+## Querying with `time_bucket`
 
-Let's take a look at the manual way first.
+Two helpers wrap the most common time-series read patterns and return a list of
+`{"bucket": ..., "avg": ...}` mappings.
 
-
-### Manually Create a Hypertable
+`time_bucket_query` buckets rows by an interval and aggregates a metric field:
 
 ```python
-from sqlmodel import create_engine, Field, SQLModel
-import timescaledb
-
-TIMESCALE_DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
-engine = create_engine(TIMESCALE_DATABASE_URL)
-
-class Sensor(SQLModel, table=True):
-    id: int = Field(default=None, primary_key=True)
-    time: datetime = Field(default=None, primary_key=True)
-    sensor_id: int = Field(index=True)
-    value: float
-
-    __tablename__ = "my_time_series_table"
-
-
-hypertable_options = {
-    "time_column": "time",
-    "compress_orderby": "time DESC",
-    "compress_segmentby": "sensor_id",
-    "chunk_time_interval": "7 days",
-    "drop_after": "1 year",
-    "migrate_data": True,
-    "if_not_exists": True,
-}
-
-# Create the table and the hypertable
-with Session(engine) as session:
-    # Create the table in the database
-    SQLModel.metadata.create_all(engine)
-    # Create the hypertable
-    table_name="my_time_series_table"
-    timescaledb.create_hypertable(
-        session, 
-        commit=True, 
-        table_name=table_name, 
-        hypertable_options=hypertable_options
-    )
-
-    # Enable compression
-    timescaledb.enable_table_compression(
-        session, 
-        commit=True, 
-        table_name=table_name, 
-        compress_orderby=hypertable_options.get('compress_orderby'), 
-        compress_segmentby=hypertable_options.get('compress_segmentby')
-    )
-    # Add compression interval policy
-    timescaledb.add_compression_policy(
-        session, 
-        commit=True,
-        table_name=table_name, 
-        compress_after=hypertable_options.get('chunk_time_interval')
-    )
-    # Add retention policy
-    timescaledb.add_retention_policy(
-        session, 
-        table_name=table_name, 
-        drop_after=hypertable_options.get('drop_after')
-    )
+rows = timescaledb.time_bucket_query(
+    session,
+    Metric,
+    interval="1 hour",
+    time_field="time",
+    metric_field="value",
+)
 ```
 
-
-### Automatically via `TimescaleModel`
-
+`time_bucket_gapfill_query` fills gaps in a bounded time range, with optional
+**LOCF** (last observation carried forward) or **interpolation**:
 
 ```python
-from sqlmodel import Field
+from datetime import datetime, timezone
 
-import timescaledb
-from timescaledb import create_engine, TimescaleModel
-
-TIMESCALE_DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
-engine = create_engine(TIMESCALE_DATABASE_URL, timezone="UTC")
-
-class SensorDos(TimescaleModel, table=True):
-    sensor_id: int = Field(index=True)
-    value: float
-    
-    # __time_column__ = "time" # set in TimescaleModel
-    __chunk_time_interval__ = "INTERVAL 7 days"
-    __drop_after__ = "INTERVAL 1 year"
-    __enable_compression__ = True
-    __compress_orderby__ = "time DESC"
-    __compress_segmentby__ = "sensor_id"  
-    __migrate_data__ = True
-    __if_not_exists__ = True
-
-
-# Create the table and the hypertable
-with Session(engine) as session:
-    # Create the table in the database
-    SQLModel.metadata.create_all(engine)
-    # Creates all hypertable, add compression policies, and add retention policy
-    timescaledb.metadata.create_all(engine)
+rows = timescaledb.time_bucket_gapfill_query(
+    session,
+    Metric,
+    interval="1 hour",
+    metric_field="value",
+    start=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    finish=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    use_locf=True,        # or use_interpolate=True
+)
 ```
 
+Both accept a `filters` list of SQLAlchemy conditions for narrowing the query.
 
+## Sample projects
 
-## Used by
+The [`samples/`](./samples/) directory has **ten self-contained, fully tested**
+example projects, each focused on a different TimescaleDB feature. Every sample
+runs against TimescaleDB in Docker and ships with a `pytest` suite that spins up
+a throwaway container automatically via
+[`testcontainers`](https://testcontainers.com/).
 
-- [analytics-api](https://github.com/codingforentrepreneurs/analytics-api) - Complete tutorial project for building an Analytics API using FastAPI + TimescaleDB
+| # | Project | Highlights |
+|---|---------|------------|
+| 01 | [`iot_sensor_network`](./samples/iot_sensor_network/) | `TimescaleModel`, `create_hypertable`, `time_bucket_query`, last-point query |
+| 02 | [`devops_metrics_gapfill`](./samples/devops_metrics_gapfill/) | `time_bucket_gapfill_query` with gapfill, LOCF, and interpolation |
+| 03 | [`crypto_ohlcv_candles`](./samples/crypto_ohlcv_candles/) | `first()`/`last()` + `time_bucket` → OHLCV candlesticks |
+| 04 | [`energy_metering_compression`](./samples/energy_metering_compression/) | native compression + measuring the ratio |
+| 05 | [`hypercore_columnstore`](./samples/hypercore_columnstore/) | Hypercore columnstore (2.18+) |
+| 06 | [`ecommerce_clickstream_retention`](./samples/ecommerce_clickstream_retention/) | retention policy + funnel rollups |
+| 07 | [`fleet_gps_tracking`](./samples/fleet_gps_tracking/) | manual `create_hypertable` path + downsampling |
+| 08 | [`continuous_aggregates_rollups`](./samples/continuous_aggregates_rollups/) | hierarchical continuous aggregates (hourly → daily) |
+| 09 | [`fastapi_timeseries_api`](./samples/fastapi_timeseries_api/) | a FastAPI REST API over a hypertable, tested with `TestClient` |
+| 10 | [`weather_lifecycle_full`](./samples/weather_lifecycle_full/) | capstone: hypertable + columnstore + retention + continuous aggregate + gapfill |
 
+See [`samples/README.md`](./samples/README.md) for setup and how to run the
+suites. There is also a minimal end-to-end FastAPI app in
+[`sample_project/`](./sample_project/).
 
-## Sample Usage 
+## FastAPI example
 
-Below is a sample of using `timescaledb` in a FastAPI app much like the example in [./sample_project](./sample_project).
+A minimal FastAPI app over a hypertable. The pattern mirrors
+[`sample_project/`](./sample_project/).
 
-`src/models.py`
+`models.py`
 ```python
+from datetime import datetime
+
 from sqlmodel import Field, SQLModel
 
 from timescaledb import TimescaleModel
 
-# create a model
+
 class Metric(TimescaleModel, table=True):
     temp: float
 
@@ -254,72 +508,62 @@ class Metric(TimescaleModel, table=True):
     __drop_after__ = "1 year"
 
 
-class MetricCreate(Metric):
-    # not a table but a Pydantic model
+class MetricCreate(SQLModel):
     temp: float
 
 
-class MetricRead(Metric):
-    # not a table but a Pydantic model
+class MetricRead(SQLModel):
     id: int
     temp: float
-    time: datetime = Field(default=None)
+    time: datetime
 ```
 
-
-### Initialize the Database
-
-The `timescaledb.create_engine` is a wrapper around `sqlmodel.create_engine` (which is a wrapper around `sqlalchemy.create_engine`) that ensures a timezone is set for your database. 
-
-`src/database.py`
+`database.py`
 ```python
-import timescaledb
 from sqlmodel import Session, SQLModel
 
-DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
-TIME_ZONE = "UTC"
-ECHO_QUERIES = False
+import timescaledb
 
-engine = timescaledb.create_engine(DATABASE_URL, timezone=TIME_ZONE, echo=ECHO_QUERIES)
+DATABASE_URL = "postgresql://user:password@localhost:5432/timescaledb"
+
+engine = timescaledb.create_engine(DATABASE_URL, timezone="UTC", echo=False)
 
 
 def get_session():
     with Session(engine) as session:
         yield session
 
+
 def init_db():
-    # Create all tables
-    print("Creating database tables...")
-    # automatically creates all tables that inherit from SQLModel
+    # Create all tables that inherit from SQLModel
     SQLModel.metadata.create_all(engine)
-
-    print("Creating hypertables...")
-    # automatically creates hypertables for all models that inherit from TimescaleModel
+    # Create hypertables (+ policies) for all TimescaleModel subclasses
     timescaledb.metadata.create_all(engine)
-
 ```
 
-
-### Create a FastAPI App
-
-Put it all together in a FastAPI app.
-
-`src/main.py`
+`main.py`
 ```python
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
-from .database import init_db, get_session
+from fastapi import Depends, FastAPI, HTTPException
+from sqlmodel import Session, select
+
+from .database import get_session, init_db
 from .models import Metric, MetricCreate, MetricRead
 
-app = FastAPI()
 
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
 
 @app.post("/metrics/", response_model=MetricRead)
 def create_metric(metric: MetricCreate, session: Session = Depends(get_session)):
-    db_metric = models.Metric.from_orm(metric)
+    db_metric = Metric.model_validate(metric)
     session.add(db_metric)
     session.commit()
     session.refresh(db_metric)
@@ -330,12 +574,45 @@ def create_metric(metric: MetricCreate, session: Session = Depends(get_session))
 def read_metric(metric_id: int, session: Session = Depends(get_session)):
     metric = session.get(Metric, metric_id)
     if not metric:
-        raise HTTPException(status_code=404, message="Metric not found")
+        raise HTTPException(status_code=404, detail="Metric not found")
     return metric
 
 
 @app.get("/metrics/", response_model=list[MetricRead])
 def list_metrics(session: Session = Depends(get_session)):
-    metrics = session.query(Metric).all()
-    return metrics
+    return session.exec(select(Metric)).all()
 ```
+
+`timescaledb.create_engine` wraps `sqlmodel.create_engine` (itself a wrapper
+around `sqlalchemy.create_engine`) and pins the connection timezone for you.
+
+## Limitations & status
+
+- **Beta.** The package is in the `0.0.x` series — the public API is still
+  settling and may change between releases. Pin a version if you need stability.
+- **Helpers are synchronous.** The `timescaledb.asyncpg` dialect is registered so
+  you can use a `timescaledb+asyncpg://` URL with raw/async SQLAlchemy, but the
+  helper functions in this package (`create_hypertable`, `time_bucket_query`,
+  `enable_columnstore`, the continuous-aggregate helpers, etc.) are all
+  synchronous and operate on a SQLModel/SQLAlchemy `Session`. There is no async
+  helper API yet.
+
+## Contributing
+
+Contributions are welcome. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for how to
+set up a dev environment, run the test suite (Docker + `testcontainers`), run
+lint/mypy, and the release process. For runnable, end-to-end examples of every
+feature, see the [`samples/`](./samples/) directory.
+
+## Used by
+
+- [analytics-api](https://github.com/codingforentrepreneurs/analytics-api) —
+  complete tutorial project for building an Analytics API using FastAPI +
+  TimescaleDB.
+
+---
+
+For a summary of recent upstream TimescaleDB changes and how they map onto this
+package, see [`docs/timescale-recent-updates.md`](./docs/timescale-recent-updates.md).
+</content>
+</invoke>

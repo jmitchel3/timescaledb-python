@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
-from . import metadata
+from . import defaults, metadata
 from .activator import activate_timescaledb_extension
 from .compression import (
     add_compression_policy,
@@ -16,6 +16,7 @@ from .continuous_aggregates import (
     refresh_continuous_aggregate,
     remove_continuous_aggregate_policy,
 )
+from .defaults import get_defaults
 from .engine import create_engine
 from .hypercore import (
     add_columnstore_policy,

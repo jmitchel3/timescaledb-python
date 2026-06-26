@@ -21,6 +21,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Install dependencies
+        run: uv pip install --system flake8
+        # Bound so a stuck index resolve can't hang the job.
+        timeout-minutes: 5
+
+      - name: Run flake8
+        # flake8 reads its [flake8] config from tox.ini.
+        run: flake8 src tests
+        timeout-minutes: 5
+
+  typecheck:
+    name: Type check (mypy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Advisory for now: the codebase has a backlog of strict-mode errors to
+    # burn down. Surface them on every run, but don't block merges yet.
+    # Flip continue-on-error to false once `mypy src/timescaledb` is clean.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Install package and type deps
+        # Installs the project (so mypy resolves its deps/stubs) plus mypy.
+        # [tool.mypy] strict = true lives in pyproject.toml.
+        run: uv pip install --system mypy .
+        timeout-minutes: 5
+
+      - name: Run mypy
+        run: mypy src/timescaledb
+        timeout-minutes: 5
+
   tests:
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-24.04
@@ -94,7 +146,6 @@ jobs:
         run: |
           coverage combine
           coverage report --fail-under=85
-        continue-on-error: true
 
       - name: Upload HTML report
         if: ${{ failure() }}

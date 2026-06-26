@@ -1,7 +1,6 @@
 import logging
 from typing import Type
 
-from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, SQLModel
 
 from timescaledb.models import TimescaleModel

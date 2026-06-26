@@ -1,10 +1,14 @@
+import logging
 from typing import Type
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, SQLModel
 
 from timescaledb.hypercore.add import add_columnstore_policy
 from timescaledb.hypercore.enable import enable_columnstore
 from timescaledb.models import TimescaleModel
+
+logger = logging.getLogger(__name__)
 
 
 def sync_columnstore_policies(session: Session, *models: Type[SQLModel]) -> None:
@@ -23,6 +27,13 @@ def sync_columnstore_policies(session: Session, *models: Type[SQLModel]) -> None
     for model in model_list:
         if not getattr(model, "__enable_columnstore__", False):
             continue
-        enable_columnstore(session, model=model, commit=False)
-        add_columnstore_policy(session, model=model, commit=False)
+        try:
+            enable_columnstore(session, model=model, commit=False)
+            add_columnstore_policy(session, model=model, commit=False)
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error(
+                f"Error syncing columnstore policy for {model.__name__}: {e}"
+            )
+            raise
     session.commit()

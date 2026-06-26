@@ -72,10 +72,13 @@ omit = [
 ]
 
 [tool.coverage.paths]
+# The canonical (first) path must exist in the checkout where `coverage
+# combine`/`report` runs, otherwise tox-recorded paths remap to a
+# non-existent location and report fails with "No source for code".
 source = [
+    "src/timescaledb",
     "timescaledb",
     "*/timescaledb",
-    "src/timescaledb",
     ".tox/*/lib/python*/site-packages/timescaledb",
 ]
 

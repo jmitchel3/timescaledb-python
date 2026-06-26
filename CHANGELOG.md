@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-06-25
+
+### Added
+
+- Database-free unit tests covering the remaining branch and error paths
+  across the compression, hypercore, continuous aggregate, retention, and
+  hypertable subpackages, bringing total test coverage to 100%.
+
+### Changed
+
+- Raised the CI coverage gate from 85% to 100%.
+
 ## [0.0.7] - 2026-06-25
 
 Production-readiness hardening release.

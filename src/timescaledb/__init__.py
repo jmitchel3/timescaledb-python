@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 from . import defaults, metadata
 from .activator import activate_timescaledb_extension

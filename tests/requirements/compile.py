@@ -15,8 +15,6 @@ if __name__ == "__main__":
         "compile",
         "--quiet",
         "--generate-hashes",
-        "--constraint",
-        "-",
         "requirements.in",
         *sys.argv[1:],
     ]
@@ -32,5 +30,4 @@ if __name__ == "__main__":
                 "--output-file",
                 f"py{py_version.replace('.', '')}.txt",
             ],
-            input=b"",  # No Django constraint needed
         )

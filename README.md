@@ -564,10 +564,15 @@ from timescaledb.django.db import models
 
 
 class Metric(models.TimescaleModel):
+    pk = models.CompositePrimaryKey("sensor_id", "time")
     time = models.TimescaleDateTimeField(interval="1 hour")
     sensor_id = models.IntegerField()
     value = models.FloatField()
 ```
+
+TimescaleDB requires a hypertable's primary key (and every other unique index)
+to include the time column, so Django's implicit `id` primary key can't be used.
+Declare a `CompositePrimaryKey` that contains the time column, as above.
 
 TimescaleDB schema changes are explicit migration operations:
 

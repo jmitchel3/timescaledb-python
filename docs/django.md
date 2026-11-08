@@ -48,6 +48,7 @@ from timescaledb.django.db import models
 
 
 class Metric(models.TimescaleModel):
+    pk = models.CompositePrimaryKey("sensor_id", "time")
     time = models.TimescaleDateTimeField(interval="1 hour")
     sensor_id = models.IntegerField()
     value = models.FloatField()
@@ -59,6 +60,22 @@ class Metric(models.TimescaleModel):
 - `TimescaleDateTimeField`
 - `TimescaleQuerySet.time_bucket`
 - `TimescaleQuerySet.time_bucket_gapfill`
+
+### Primary keys
+
+TimescaleDB requires every unique index on a hypertable, including the primary
+key, to contain the partitioning (time) column. A model that keeps Django's
+implicit `id` primary key can't be converted by `CreateHypertable`; the
+migration fails with `cannot create a unique index without the column "time"`.
+
+Declare a composite primary key that includes the time column, using Django's
+`CompositePrimaryKey` (Django 5.2+). Pick the other fields so that the key is
+unique for your data (for example the series identifier plus time). Django's
+`AutoField` can't be part of a composite primary key.
+
+The `timescaledb.W001` system check reports a managed `TimescaleModel` whose
+primary key does not include its `TimescaleDateTimeField`, so the problem shows
+up in `manage.py check` instead of halfway through a migration.
 
 Migrations remain the source of truth for TimescaleDB schema changes.
 

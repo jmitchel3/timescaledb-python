@@ -16,12 +16,14 @@ class Migration(migrations.Migration):
             name="SensorReading",
             fields=[
                 (
-                    "id",
-                    models.BigAutoField(
-                        auto_created=True,
+                    "pk",
+                    models.CompositePrimaryKey(
+                        "device_id",
+                        "time",
+                        blank=True,
+                        editable=False,
                         primary_key=True,
                         serialize=False,
-                        verbose_name="ID",
                     ),
                 ),
                 (

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the Django model examples in the README, `docs/django.md`, and the
+  Django sample project: they used Django's implicit `id` primary key, which
+  makes `CreateHypertable` fail on a real TimescaleDB because the primary key
+  must include the time column. They now declare a `CompositePrimaryKey` that
+  includes the time column (#11).
+
+### Added
+
+- `timescaledb.W001` Django system check that warns when a managed
+  `TimescaleModel`'s primary key does not include its `TimescaleDateTimeField`
+  (#11).
+- Django integration test that creates a hypertable from a model with a
+  composite primary key through Django's schema editor.
+
 ## [0.2.1] - 2026-06-26
 
 ### Fixed

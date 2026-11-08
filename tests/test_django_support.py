@@ -25,6 +25,8 @@ if not settings.configured:
 
 import django
 from django.apps import apps
+from django.core import checks as django_checks
+from django.db import DatabaseError
 from django.db import connections
 from django.db import models as django_models
 from django.db.migrations.exceptions import IrreversibleError
@@ -37,6 +39,7 @@ if not apps.ready:
 
 from timescaledb.django import _django_version_tuple
 from timescaledb.django import _validate_django_version
+from timescaledb.django import checks as timescale_checks
 from timescaledb.django.apps import TimescaleDBConfig
 from timescaledb.django.db import functions
 from timescaledb.django.db import migrations
@@ -65,6 +68,40 @@ class IntegrationMetric(models.TimescaleModel):
         app_label = APP_LABEL
         db_table = "sensor_metric"
         managed = False
+
+
+class CompositePrimaryKeyMetric(models.TimescaleModel):
+    pk = models.CompositePrimaryKey("device_id", "time")
+    time = models.TimescaleDateTimeField(interval="1 hour")
+    device_id = models.IntegerField()
+    value = models.FloatField()
+
+    class Meta:
+        app_label = APP_LABEL
+        db_table = "composite_pk_metric"
+
+
+class PlainTimeColumnMetric(models.TimescaleModel):
+    time = models.DateTimeField()
+    value = models.FloatField()
+
+    class Meta:
+        app_label = APP_LABEL
+
+
+class NotATimescaleModel(django_models.Model):
+    time = models.TimescaleDateTimeField(interval="1 hour")
+
+    class Meta:
+        app_label = APP_LABEL
+
+
+class _FakeAppConfig:
+    def __init__(self, *models_: type[Any]) -> None:
+        self._models = models_
+
+    def get_models(self) -> tuple[type[Any], ...]:
+        return self._models
 
 
 class RecordingSchemaEditor:
@@ -170,6 +207,41 @@ def test_app_config_enforces_supported_django_version() -> None:
 
     assert app_config.label == "timescaledb_django"
     app_config.ready()
+    assert (
+        timescale_checks.check_timescale_model_primary_keys
+        in django_checks.registry.registry.get_checks()
+    )
+
+
+def test_primary_key_check_warns_when_time_column_is_not_in_primary_key() -> None:
+    messages = timescale_checks.check_model_primary_key(DjangoMetric)
+
+    assert len(messages) == 1
+    assert messages[0].id == timescale_checks.PRIMARY_KEY_EXCLUDES_TIME_COLUMN
+    assert messages[0].obj is DjangoMetric
+    assert "'time'" in messages[0].msg
+    assert 'CompositePrimaryKey("<series_field>", "time")' in messages[0].hint
+
+
+def test_primary_key_check_accepts_or_skips_other_models() -> None:
+    # composite primary key containing the time column
+    assert timescale_checks.check_model_primary_key(CompositePrimaryKeyMetric) == []
+    # time column is the primary key itself
+    assert IntegrationMetric._meta.managed is False
+    assert timescale_checks.check_model_primary_key(IntegrationMetric) == []
+    # no TimescaleDateTimeField to infer the time column from
+    assert timescale_checks.check_model_primary_key(PlainTimeColumnMetric) == []
+    # not a TimescaleModel
+    assert timescale_checks.check_model_primary_key(NotATimescaleModel) == []
+
+
+def test_primary_key_check_iterates_given_or_installed_app_configs() -> None:
+    fake = _FakeAppConfig(DjangoMetric, CompositePrimaryKeyMetric)
+    messages = timescale_checks.check_timescale_model_primary_keys([fake])
+    assert [message.obj for message in messages] == [DjangoMetric]
+
+    # installed apps in this test settings contain no TimescaleModel
+    assert timescale_checks.check_timescale_model_primary_keys() == []
 
 
 def test_model_shims_reexport_django_models_and_deconstruct_cleanly() -> None:
@@ -804,6 +876,59 @@ WHERE hypertable_name = 'sensor_metric';
                         'DROP MATERIALIZED VIEW IF EXISTS "metric_hourly" CASCADE;'
                     )
                     cursor.execute('DROP TABLE IF EXISTS "sensor_metric" CASCADE;')
+        finally:
+            connection.close()
+            connections.databases.pop(alias, None)
+
+
+def test_create_hypertable_from_django_models_against_timescale(
+    timescale_url: str,
+) -> None:
+    """Tables built by Django's schema editor, as `migrate` does (#11)."""
+    alias = "timescale_django_primary_keys"
+    connections.databases[alias] = _database_settings_from_url(timescale_url)
+    connection = connections[alias]
+    state = ProjectState()
+    state.add_model(ModelState.from_model(CompositePrimaryKeyMetric))
+    state.add_model(ModelState.from_model(DjangoMetric))
+    composite_table = CompositePrimaryKeyMetric._meta.db_table
+    id_pk_table = DjangoMetric._meta.db_table
+
+    try:
+        with connection.schema_editor(atomic=False) as schema_editor:
+            for table in (composite_table, id_pk_table):
+                schema_editor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE;')
+            migrations.CreateExtension().database_forwards(
+                APP_LABEL, schema_editor, state, state
+            )
+            schema_editor.create_model(CompositePrimaryKeyMetric)
+            schema_editor.create_model(DjangoMetric)
+
+            migrations.CreateHypertable(
+                "CompositePrimaryKeyMetric",
+                chunk_time_interval="1 day",
+            ).database_forwards(APP_LABEL, schema_editor, state, state)
+
+            # Django's implicit `id` primary key excludes the time column.
+            with pytest.raises(DatabaseError, match="cannot create a unique index"):
+                migrations.CreateHypertable(
+                    "DjangoMetric",
+                    chunk_time_interval="1 day",
+                ).database_forwards(APP_LABEL, schema_editor, state, state)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT hypertable_name FROM timescaledb_information.hypertables "
+                "WHERE hypertable_name = ANY(%s);",
+                [[composite_table, id_pk_table]],
+            )
+            assert [row[0] for row in cursor.fetchall()] == [composite_table]
+    finally:
+        try:
+            if connection.connection is not None:
+                with connection.cursor() as cursor:
+                    for table in (composite_table, id_pk_table):
+                        cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE;')
         finally:
             connection.close()
             connections.databases.pop(alias, None)
